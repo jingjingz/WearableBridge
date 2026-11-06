@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WearableBridge supplementary material</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f4f6f2; color: #18332f; font: 16px system-ui, sans-serif; }
+    main { max-width: 1080px; margin: auto; padding: 36px 24px; }
+    header { border-bottom: 1px solid #dce5df; padding-bottom: 18px; }
+    h1 { font: 42px Georgia, serif; margin: 0 0 14px; }
+    h2 { font-size: 24px; margin: 0 0 12px; }
+    p, li { color: #58706a; line-height: 1.7; }
+    .figures { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin: 28px 0; }
+    article, .code { background: white; border: 1px solid #dce5df; border-radius: 10px; padding: 25px; }
+    a { color: #21685a; text-underline-offset: 3px; }
+    a:focus-visible { outline: 3px solid #85b5a6; outline-offset: 3px; }
+    .open { display: inline-block; background: #21685a; color: white; border-radius: 6px; padding: 11px 16px; text-decoration: none; }
+    pre { overflow-x: auto; background: #f4f6f2; padding: 14px; line-height: 1.6; }
+    footer { margin-top: 26px; font-size: 13px; color: #58706a; line-height: 1.7; }
+    @media (max-width: 700px) { .figures { grid-template-columns: 1fr; } h1 { font-size: 34px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>WearableBridge</h1>
+    <p>Supplementary code and interactive figures for <strong>WearableBridge: Task-Guided Latent Transport for Free-Living Activity Recognition</strong>.</p>
+  </header>
+  <div class="figures">
+    <article>
+      <h2>Thigh2Wrist</h2>
+      <p>Wrist features before and after MeanFlow adaptation, with concurrent measured-thigh features.</p>
+      <a class="open" href="thigh2wrist.html">Open Thigh2Wrist</a>
+    </article>
+    <article>
+      <h2>Lab2Freeliving</h2>
+      <p>Wrist features before and after Mapper, MeanFlow, and Distillation, with independent laboratory references.</p>
+      <a class="open" href="lab2freeliving.html">Open Lab2Freeliving</a>
+    </article>
+  </div>
+  <section class="code">
+    <h2>Code</h2>
+    <p>Prepare features and a fitted reference classifier, then train a bridge:</p>
+    <pre>python -m pip install -r requirements.txt
+python train.py --data calibration.pt --output bridge.pt --method meanflow</pre>
+    <p><a href="README.md">Instructions</a> · <a href="wearablebridge.py">Bridge models</a> · <a href="train.py">Training script</a></p>
+  </section>
+  <footer>
+    The demos work offline. Dense and Sparse views show 2,048 and 128 wrist windows with fixed projected coordinates.
+    Playback interpolates between projected endpoints. Intermediate frames illustrate the change and are not model trajectories.
+  </footer>
+</main>
+</body>
+</html>
