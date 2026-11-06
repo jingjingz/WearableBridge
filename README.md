@@ -12,15 +12,32 @@ classifier stay fixed, and prediction uses wrist input alone.
 The code implements **Mapper, MeanFlow, and Distillation**, with training and
 inference from extracted features and a fitted reference classifier.
 
+## Results reported in the paper
+
+PAAWS current-window macro-F1 (%) with frozen MoCA references. Each design
+evaluates 40 held-out participants. Values are mean ± sample standard deviation
+over three training runs.
+
+| Method | Thigh2Wrist | Lab2Freeliving |
+| --- | --- | --- |
+| Unadapted reference | 35.07 ± 0.21 | 54.00 ± 1.29 |
+| Mapper | 54.13 ± 0.54 | 60.90 ± 0.57 |
+| MeanFlow | **55.98 ± 0.51** | **63.54 ± 1.23** |
+| Distillation | 55.06 ± 0.32 | 62.30 ± 1.26 |
+
 ## Explore the figures
 
-Download the repository and open `index.html` in a browser. The figures work
-offline and require no Python installation.
+Open the [demo page](https://jingjingz.github.io/WearableBridge/) or go directly
+to either figure:
 
-- **Thigh2Wrist** compares wrist features before and after bridging with features
-  from concurrent thigh recordings.
-- **Lab2Freeliving** compares the three bridges with independently recorded
-  laboratory wrist references.
+- **[Thigh2Wrist](https://jingjingz.github.io/WearableBridge/thigh2wrist.html)**
+  compares wrist features before and after bridging with features from concurrent
+  thigh recordings.
+- **[Lab2Freeliving](https://jingjingz.github.io/WearableBridge/lab2freeliving.html)**
+  compares the three bridges with independently recorded laboratory wrist references.
+
+The figures require no Python installation. For offline use, download the
+repository and open `index.html` in a browser.
 
 Playback interpolates between projected endpoints. Intermediate
 frames illustrate the change and are not model trajectories.
@@ -179,12 +196,19 @@ datasets, and pretrained checkpoints from their respective sources.
 </details>
 
 <details>
-<summary>Check the installation with a small synthetic example</summary>
+<summary>Try bridging on held-out synthetic data</summary>
 
-Run this example from the repository folder after installation. It trains a
-bridge, reloads the checkpoint, and checks the predicted probabilities.
+On macOS or Linux, paste this entire block into the terminal after installation,
+from the `WearableBridge` folder with the virtual environment active. It runs
+on the CPU and cleans up its temporary checkpoint automatically.
 
-```python
+The example creates four synthetic activities and adds a feature-dependent
+offset to the source features. A known reference classifier recognizes the
+reference features. MeanFlow learns from 256 training pairs, then the code
+compares unadapted and bridged predictions on 256 new samples.
+
+```bash
+python - <<'PY'
 import tempfile
 from pathlib import Path
 import torch
@@ -192,25 +216,50 @@ from train import train_bridge, load_bridge
 from wearablebridge import predict
 
 torch.set_num_threads(1)
-torch.manual_seed(0)
-labels = torch.arange(32) % 4
-reference = torch.eye(4)[labels] + 0.05 * torch.randn(32, 4)
-source = reference + 0.2
+torch.manual_seed(7)
+
+def make_data(n):
+    labels = torch.arange(n) % 4
+    reference = 2 * torch.eye(4)[labels] + 0.2 * torch.randn(n, 4)
+    source = reference + torch.tensor([2.5, -1.0, 0.5, -1.5])
+    return source, reference, labels
+
+source, reference, labels = make_data(256)
+test_source, _, test_labels = make_data(256)
 classifier = torch.nn.Linear(4, 4)
 with torch.no_grad():
     classifier.weight.copy_(torch.eye(4))
     classifier.bias.zero_()
-batches = [(source, reference, labels, torch.ones(32))]
-checkpoint = train_bridge(batches, reference, classifier,
-                          method="meanflow", hidden_dim=16, epochs=2, seed=0)
+
+checkpoint = train_bridge(
+    [(source, reference, labels, torch.ones(len(labels)))],
+    reference, classifier, method="meanflow", hidden_dim=32,
+    epochs=60, learning_rate=0.01, seed=7,
+)
 with tempfile.TemporaryDirectory() as folder:
     path = Path(folder) / "bridge.pt"
     torch.save(checkpoint, path)
     bridge, head, standardizer = load_bridge(path)
-    probabilities = predict(source, bridge, head, standardizer)
-assert probabilities.shape == (32, 4) and torch.isfinite(probabilities).all()
-print("Training and prediction passed.")
+    before = predict(test_source, None, head, standardizer)
+    after = predict(test_source, bridge, head, standardizer)
+
+for name, probabilities in [("Unadapted", before), ("MeanFlow bridge", after)]:
+    assert probabilities.shape == (256, 4) and torch.isfinite(probabilities).all()
+    accuracy = (probabilities.argmax(1) == test_labels).float().mean().item()
+    print(f"{name}: {accuracy:.1%} accuracy on held-out synthetic samples")
+PY
 ```
+
+Verified output with the pinned dependencies on CPU:
+
+```text
+Unadapted: 37.1% accuracy on held-out synthetic samples
+MeanFlow bridge: 100.0% accuracy on held-out synthetic samples
+```
+
+This controlled example illustrates correction of a feature mismatch. The
+paper evaluates performance on wearable recordings and compares methods across
+participants, datasets, and training runs.
 
 </details>
 
