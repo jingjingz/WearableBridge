@@ -29,6 +29,10 @@ repository and open `index.html` in a browser.
 Playback interpolates between projected endpoints. Intermediate
 frames illustrate the change and are not model trajectories.
 
+[![Thigh2Wrist MeanFlow animation](thigh2wrist-meanflow.gif)](https://jingjingz.github.io/WearableBridge/thigh2wrist.html)
+
+Click the preview to open the interactive figure and control it with the slider.
+
 ## Install
 
 Use Python 3.12 with the pinned dependencies in `requirements.txt`.
@@ -139,34 +143,7 @@ the activity scoring mask. History resets at gaps.
 
 </details>
 
-## Settings used in the paper
-
-The primary four-class experiments use frozen MoCA features with these settings:
-
-| Setting | Thigh2Wrist | Lab2Freeliving |
-| --- | --- | --- |
-| Feature dimension | 768 | 128 |
-| Frozen classifier | `Linear(768, 4)` | `Linear(128, 4)` |
-| `--hidden-dim` | 768 | 256 |
-| MeanFlow `--epsilon` | 0.06 | 0.01 |
-| Checkpoint selection | Final epoch | Best validation macro-F1 |
-
-Both designs use batches of 128, learning rate and weight decay of `1e-4`, and
-at most 30 epochs. Paper seeds are `20260717`, `20260718`, and `20260719`.
-The CLI defaults to seed 0. Set `--seed` to use a paper seed.
-
-For Lab2Freeliving, the 128-dimensional features are the output of a fitted
-linear projection, LayerNorm, and GELU. Freeze this block together with the
-classifier. Rematch pairs each epoch through the Python API, using the same
-pairing schedule across methods. Within each participant/activity/wrist-side
-group, shuffle both lists independently, cycle the shorter list, and then
-shuffle all pairs together.
-
-See the manuscript appendix for preprocessing, reference-model fitting,
-participant splits, pair weights, and evaluation.
-
-<details>
-<summary>Encoders and pretrained weights</summary>
+## Encoders and pretrained weights
 
 | Encoder | Source | Weights used in the paper |
 | --- | --- | --- |
@@ -180,10 +157,7 @@ Reference classifiers and the MoCA projection are fitted on reference data.
 They are separate from the downloaded pretrained weights. Obtain encoder code,
 datasets, and pretrained checkpoints from their respective sources.
 
-</details>
-
-<details>
-<summary>Try bridging on held-out synthetic data</summary>
+## Try bridging on held-out synthetic data
 
 On macOS or Linux, paste this entire block into the terminal after installation,
 from the `WearableBridge` folder with the virtual environment active. It runs
@@ -247,8 +221,6 @@ MeanFlow bridge: 100.0% accuracy on held-out synthetic samples
 This controlled example illustrates correction of a feature mismatch. The
 paper evaluates performance on wearable recordings and compares methods across
 participants, datasets, and training runs.
-
-</details>
 
 ## License
 
