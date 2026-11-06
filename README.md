@@ -159,9 +159,8 @@ datasets, and pretrained checkpoints from their respective sources.
 
 ## Try bridging on held-out synthetic data
 
-On macOS or Linux, paste this entire block into the terminal after installation,
-from the `WearableBridge` folder with the virtual environment active. It runs
-on the CPU and cleans up its temporary checkpoint automatically.
+Run this block from the repository folder with the virtual environment active.
+It runs on the CPU.
 
 The example creates four synthetic activities and adds a feature-dependent
 offset to the source features. A known reference classifier recognizes the
@@ -211,16 +210,12 @@ for name, probabilities in [("Unadapted", before), ("MeanFlow bridge", after)]:
 PY
 ```
 
-Verified output with the pinned dependencies on CPU:
+Expected output:
 
 ```text
 Unadapted: 37.1% accuracy on held-out synthetic samples
 MeanFlow bridge: 100.0% accuracy on held-out synthetic samples
 ```
-
-This controlled example illustrates correction of a feature mismatch. The
-paper evaluates performance on wearable recordings and compares methods across
-participants, datasets, and training runs.
 
 ## License
 
