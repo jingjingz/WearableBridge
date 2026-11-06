@@ -1,33 +1,188 @@
 # WearableBridge
 
-Code for training Mapper, MeanFlow, and Distillation bridges on features from
-your own encoder and dataset.
+**Task-Guided Latent Transport for Free-Living Activity Recognition**
 
-## Files
+Jingjing Zou and Yixin Wang, 2026
 
-| File | Contents |
-| --- | --- |
-| `wearablebridge.py` | Bridge models, losses, normalization, and prediction |
-| `train.py` | Training and checkpoint loading |
-| `requirements.txt` | Python dependencies |
-| `README.md` | Instructions |
-| `index.html` | Links to the interactive figures |
-| `thigh2wrist.html` | Thigh2Wrist figure |
-| `lab2freeliving.html` | Lab2Freeliving figure |
+WearableBridge uses reference recordings to improve activity recognition from
+wrist accelerometers. It learns a small bridge that maps wrist features into
+the feature space of a trained reference classifier. The encoder and reference
+classifier stay fixed, and prediction uses wrist input alone.
 
-## Steps
+The code implements **Mapper, MeanFlow, and Distillation**, with training and
+inference from extracted features and a fitted reference classifier.
 
-### 1. Install
+## Explore the figures
 
-Use Python 3.12 in a virtual environment. Run these commands from this folder:
+Download the repository and open `index.html` in a browser. The figures work
+offline and require no Python installation.
+
+- **Thigh2Wrist** compares wrist features before and after bridging with features
+  from concurrent thigh recordings.
+- **Lab2Freeliving** compares the three bridges with independently recorded
+  laboratory wrist references.
+
+Playback interpolates between projected endpoints. Intermediate
+frames illustrate the change and are not model trajectories.
+
+## Install
+
+Use Python 3.12 with the pinned dependencies in `requirements.txt`.
 
 ```bash
+git clone https://github.com/jingjingz/WearableBridge.git
+cd WearableBridge
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Optional CPU check with synthetic features:
+## Train a bridge
+
+### Prepare the inputs
+
+Split participants into training, validation, and test sets before fitting or
+pairing. Fit the reference classifier on reference-training data, then freeze
+it and the encoder. Extract wrist (`source`) and reference features with the
+same encoder and fitted projection. Supply features before standardization.
+The training code estimates normalization from unique reference-training rows.
+
+Each training row pairs a labeled wrist window with a reference window. Use
+concurrent recordings for Thigh2Wrist, or match within participant, activity,
+and wrist-side groups for Lab2Freeliving.
+
+Save a dictionary with these keys as `calibration.pt` using `torch.save`.
+Command-line training uses a fitted `torch.nn.Linear(D, C)` classifier that
+returns logits. `N` is the number of pairs, `D` the feature dimension, and `C`
+the number of activities.
+
+| Key | Contents |
+| --- | --- |
+| `source` | Float32 tensor `[N, D]` of wrist features |
+| `reference` | Float32 tensor `[N, D]` of paired reference features |
+| `labels` | Int64 tensor `[N]` of wrist activity labels, from `0` to `C-1` |
+| `reference_train` | Float32 tensor `[M, D]` of unique reference-training features |
+| `classifier` | The fitted classifier's `state_dict()` |
+| `weights` | Optional positive float32 tensor `[N]` of pair weights, defaulting to ones |
+
+### Run training
+
+```bash
+python train.py --data calibration.pt --output bridge.pt --method meanflow
+```
+
+Choose `mapper`, `meanflow`, or `distillation` with `--method`. Add
+`--device cuda` for GPU training. Run `python train.py --help` for all options.
+
+The default run trains for 30 epochs and saves the final checkpoint. To use
+early stopping and select the best validation macro-F1, add
+`--validation validation.pt`. This file contains `source` and `labels` for
+unique validation windows, using the tensor formats above.
+
+## Predict activities
+
+Extract wrist features with the same encoder, projection, preprocessing, and
+class order used for training, then load the saved bridge:
+
+```python
+from train import load_bridge
+from wearablebridge import predict
+
+bridge, classifier, standardizer = load_bridge("bridge.pt")
+probabilities = predict(source_features.cpu().float(), bridge, classifier, standardizer)
+labels = probabilities.argmax(dim=1)
+```
+
+Process large datasets in batches.
+
+<details>
+<summary>Python API: custom classifiers and pairs that change each epoch</summary>
+
+`train_bridge` accepts an iterable of `(source, reference, labels, weights)` batches
+or a function `batches(epoch)` that returns them. Epoch numbers start at 1.
+Validation batches contain `(source, labels)`.
+
+```python
+import torch
+from train import train_bridge
+
+checkpoint = train_bridge(batches, reference_train, classifier,
+                          validation=validation_batches, seed=20260717)
+torch.save(checkpoint, "bridge.pt")
+```
+
+Seed and recreate the loader or pairing function for each run. Weighted losses
+use `mean(weight * loss)`. To restore a custom classifier, pass its architecture
+to `load_bridge("bridge.pt", classifier=model)`.
+
+</details>
+
+<details>
+<summary>Temporal averaging</summary>
+
+For the paper's five-window results:
+
+```python
+from wearablebridge import causal_average
+
+probabilities = causal_average(probabilities, stream, start_us, window_count=5)
+labels = probabilities.argmax(dim=1)
+```
+
+`stream` identifies each participant/wrist recording stream. `start_us` contains
+integer window-start times in microseconds. Include all windows before applying
+the activity scoring mask. History resets at gaps.
+
+</details>
+
+## Settings used in the paper
+
+The primary four-class experiments use frozen MoCA features with these settings:
+
+| Setting | Thigh2Wrist | Lab2Freeliving |
+| --- | --- | --- |
+| Feature dimension | 768 | 128 |
+| Frozen classifier | `Linear(768, 4)` | `Linear(128, 4)` |
+| `--hidden-dim` | 768 | 256 |
+| MeanFlow `--epsilon` | 0.06 | 0.01 |
+| Checkpoint selection | Final epoch | Best validation macro-F1 |
+
+Both designs use batches of 128, learning rate and weight decay of `1e-4`, and
+at most 30 epochs. Paper seeds are `20260717`, `20260718`, and `20260719`.
+The CLI defaults to seed 0. Set `--seed` to use a paper seed.
+
+For Lab2Freeliving, the 128-dimensional features are the output of a fitted
+linear projection, LayerNorm, and GELU. Freeze this block together with the
+classifier. Rematch pairs each epoch through the Python API, using the same
+pairing schedule across methods. Within each participant/activity/wrist-side
+group, shuffle both lists independently, cycle the shorter list, and then
+shuffle all pairs together.
+
+See the manuscript appendix for preprocessing, reference-model fitting,
+participant splits, pair weights, and evaluation.
+
+<details>
+<summary>Encoders and pretrained weights</summary>
+
+| Encoder | Source | Weights used in the paper |
+| --- | --- | --- |
+| MoCA | [Ryu et al. (2025), code](https://github.com/HowonRyu/MoCA) | [checkpoint-19.pth](https://github.com/HowonRyu/MoCA/blob/main/checkpoints/checkpoint-19.pth) |
+| HARNet10 | [Yuan et al. (2024), code](https://github.com/OxWearables/ssl-wearables) | `mtl_best.mdl` |
+| DeepConvLSTM | Ordóñez and Roggen (2016), doi:10.3390/s16010115 | Trained from scratch |
+| InceptionTime | Ismail Fawaz et al. (2020), doi:10.1007/s10618-020-00710-y | Trained from scratch |
+| HART | Ek et al. (2023), doi:10.1007/s00779-023-01776-3 | Accelerometer-only adaptation, trained from scratch |
+
+Reference classifiers and the MoCA projection are fitted on reference data.
+They are separate from the downloaded pretrained weights. Obtain encoder code,
+datasets, and pretrained checkpoints from their respective sources.
+
+</details>
+
+<details>
+<summary>Check the installation with a small synthetic example</summary>
+
+Run this example from the repository folder after installation. It trains a
+bridge, reloads the checkpoint, and checks the predicted probabilities.
 
 ```python
 import tempfile
@@ -57,125 +212,7 @@ assert probabilities.shape == (32, 4) and torch.isfinite(probabilities).all()
 print("Training and prediction passed.")
 ```
 
-### 2. Prepare features
-
-Fit a classifier on reference-training data, then freeze it and the encoder.
-Extract source and reference features before standardization, using the same
-encoder and fitted projection. The classifier must return logits from those
-features. Split participants into training, validation, and test sets before
-pairing. Pair training examples using
-simultaneous recordings or matches within participant, activity, and wrist-side
-groups. Each source example needs an activity label.
-
-Save a dictionary as `calibration.pt` using `torch.save`. For command-line
-training, the classifier must be `torch.nn.Linear(D, C)`, where D is the feature
-dimension and C is the number of classes.
-
-| Key | Value |
-| --- | --- |
-| `source` | Float32 `[N, D]` source features |
-| `reference` | Float32 `[N, D]` paired reference features |
-| `labels` | Int64 `[N]` source labels, numbered `0` to `C-1` |
-| `reference_train` | Float32 `[M, D]` unique reference-training features for normalization |
-| `classifier` | Fitted classifier's `state_dict()` |
-| `weights` | Optional positive float32 `[N]` pair weights, defaulting to ones |
-
-### 3. Train
-
-```bash
-python train.py --data calibration.pt --output bridge.pt --method meanflow
-```
-
-Use `--method mapper` or `--method distillation` to change the method, and
-`--device cuda` to use a GPU. Run `python train.py --help` for other options.
-
-By default, training runs for 30 epochs and saves the final model. To select by
-validation macro-F1 with early stopping, add `--validation validation.pt`.
-That file contains `source` and `labels` for unique validation windows, with
-the same format as above.
-
-For a custom classifier or new pairs each epoch, use `train_bridge` in
-`train.py`. It accepts batches of `(source, reference, labels, weights)` or a
-function `batches(epoch)` that returns them, starting at epoch 1. Seed and
-recreate your loader or pairing function for each run. Pair losses use
-`mean(weight * loss)` with training-set group weights. Validation batches
-contain `(source, labels)`.
-
-```python
-import torch
-from train import train_bridge
-
-checkpoint = train_bridge(batches, reference_train, classifier,
-                          validation=validation_batches, seed=20260717)
-torch.save(checkpoint, "bridge.pt")
-```
-
-### 4. Predict
-
-```python
-from train import load_bridge
-from wearablebridge import predict
-
-bridge, classifier, standardizer = load_bridge("bridge.pt")
-probabilities = predict(source_features.cpu().float(), bridge, classifier, standardizer)
-labels = probabilities.argmax(dim=1)
-```
-
-Use the same encoder, preprocessing, and class order as in training. For a
-custom classifier, pass its architecture to `load_bridge(..., classifier=model)`.
-Predict large datasets in batches. For the paper's five-window results:
-
-```python
-from wearablebridge import causal_average
-
-probabilities = causal_average(probabilities, stream, start_us, window_count=5)
-labels = probabilities.argmax(dim=1)
-```
-
-`stream` is an integer ID for each participant/wrist recording stream and
-`start_us` contains integer window-start times in microseconds. Include all
-windows before applying the activity scoring mask. History resets at gaps.
-
-### 5. View the figures
-
-Download this repository and open `index.html` in a browser. Both figures work offline. Playback interpolates
-between projected endpoints. Intermediate frames are illustrative.
-
-## Encoders used in the paper
-
-The pretrained encoder sources and checkpoint names are linked below.
-
-| Encoder | Paper | Weights |
-| --- | --- | --- |
-| MoCA | Ryu et al. (2025), arXiv:2506.02260 | [MoCA code](https://github.com/HowonRyu/MoCA), [checkpoint-19.pth](https://github.com/HowonRyu/MoCA/blob/main/checkpoints/checkpoint-19.pth) |
-| HARNet10 | Yuan et al. (2024), npj Digital Medicine, doi:10.1038/s41746-024-01062-3 | [HARNet code and loading instructions](https://github.com/OxWearables/ssl-wearables), `mtl_best.mdl` |
-| DeepConvLSTM | Ordóñez and Roggen (2016), Sensors, doi:10.3390/s16010115 | Local implementation, trained from scratch |
-| InceptionTime | Ismail Fawaz et al. (2020), Data Mining and Knowledge Discovery, doi:10.1007/s10618-020-00710-y | Local implementation, trained from scratch |
-| HART | Ek et al. (2023), Personal and Ubiquitous Computing, doi:10.1007/s00779-023-01776-3 | Local accelerometer-only adaptation, trained from scratch |
-
-Reference classifiers and the MoCA projection are fitted on reference data.
-They are not included in the downloaded weights. Encoder code, datasets, and
-checkpoints are not bundled here.
-
-For primary four-class MoCA Lab2Freeliving, use 128-dimensional features,
-`--hidden-dim 256`, `--epsilon 0.01`, and validation selection. The features
-include the fitted linear projection, LayerNorm, and GELU, followed by a
-frozen `Linear(128, 4)` classifier. Rematch pairs each epoch using the Python
-interface, with the same schedule across methods. Within each participant,
-activity, and wrist-side group, independently shuffle both lists and cycle
-the shorter list, then shuffle all pairs together.
-
-Thigh2Wrist uses 768-dimensional MoCA features, a frozen `Linear(768, 4)`
-classifier, `--hidden-dim 768`, `--epsilon 0.06`, and the final epoch.
-Both designs use batches of 128, learning rate and weight decay `1e-4`, and
-30 epochs maximum. Paper seeds are `20260717`, `20260718`, and `20260719`.
-Pass `--seed` to change the CLI default of 0. See the manuscript appendix for
-preprocessing, reference fitting, participant splits, and evaluation.
-
-## Paper
-
-Jingjing Zou and Yixin Wang (2026). *WearableBridge: Task-Guided Latent
-Transport for Free-Living Activity Recognition*.
+</details>
 
 ## License
 
