@@ -12,19 +12,6 @@ classifier stay fixed, and prediction uses wrist input alone.
 The code implements **Mapper, MeanFlow, and Distillation**, with training and
 inference from extracted features and a fitted reference classifier.
 
-## Results reported in the paper
-
-PAAWS current-window macro-F1 (%) with frozen MoCA references. Each design
-evaluates 40 held-out participants. Values are mean ± sample standard deviation
-over three training runs.
-
-| Method | Thigh2Wrist | Lab2Freeliving |
-| --- | --- | --- |
-| Unadapted reference | 35.07 ± 0.21 | 54.00 ± 1.29 |
-| Mapper | 54.13 ± 0.54 | 60.90 ± 0.57 |
-| MeanFlow | **55.98 ± 0.51** | **63.54 ± 1.23** |
-| Distillation | 55.06 ± 0.32 | 62.30 ± 1.26 |
-
 ## Explore the figures
 
 Open the [demo page](https://jingjingz.github.io/WearableBridge/) or go directly
